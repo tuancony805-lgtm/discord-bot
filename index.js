@@ -1,7 +1,16 @@
 import "dotenv/config";
+import express from "express";
 import fs from "fs";
-import { ActivityType, Client, ContainerBuilder, GatewayIntentBits, MessageFlags, REST, Routes, SlashCommandBuilder, AttachmentBuilder } from "discord.js";
+import { ActivityType, Client, ContainerBuilder, GatewayIntentBits, MessageFlags, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { joinVoiceChannel } from "@discordjs/voice";
+
+// ===== WEB SERVER CHO RENDER - FIX No open ports =====
+const app = express();
+app.get("/", (req, res) => res.send("GES VR Bot Running - OK"));
+app.get("/ping", (req, res) => res.send("pong"));
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Web server on ${PORT}`));
+// =====================================================
 
 const PREFIX = "!";
 const INVITE_LINK = "https://discord.gg/J4v2WDsGjP";
@@ -33,17 +42,11 @@ const helpCmd = new SlashCommandBuilder().setName("help").setDescription("Xem t�
 async function startBot(token, label){
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
   const voice = new VoiceManager(label);
-
   client.once("ready", ()=>{
     console.log(`[${label}] Online ${client.user.tag}`);
-    // TRẠNG THÁI XANH + KÍNH VR NHƯ ẢNH NÍ GỬI
-    client.user.setPresence({
-      status: "online", // màu xanh
-      activities: [{
-        name: "🥽 VR | Join GES",
-        type: ActivityType.Watching,
-        state: INVITE_LINK
-      }]
+    client.user.setPresence({ 
+      status: "online", 
+      activities: [{ name: "🥽 VR | Join GES", type: ActivityType.Watching }] 
     });
   });
 
@@ -54,38 +57,26 @@ async function startBot(token, label){
     const [cmdName, ...args] = content.slice(1).split(/\s+/);
     const name = cmdName.toLowerCase();
 
-    // HELP PREFIX
     if(name==="help"){
-      return message.reply(`**🥽 GES VR BOT - DANH SÁCH LỆNH**\n\n**Voice:**\n\`!join\` - Bot vào voice\n\`!leave\` - Bot rời voice\n\n**Thông tin:**\n\`/avatar @user\` - Xem avatar\n\`/banner @user\` - Xem banner\n\`/help\` - Xem lệnh (slash)\n\n**Quản lý:**\n\`!setowner @user\` - Set owner\n\`!removeowner @user\` - Gỡ owner\n\`!owners\` - List owner\n\`!mute @user\` \`!unmute\` \`!ban\` \`!unban\`\n\n**Bot Owner Only:**\n\`!set avatar [link hoặc đính kèm ảnh]\` - Đổi avatar bot thành kính VR như ảnh ní gửi\n\`!set banner [link]\` - Đổi banner bot\n\`!ges\` - Lấy link GES\n\n**Link:** ${INVITE_LINK}`);
+      return message.reply(`**🥽 GES VR BOT - DANH SÁCH LỆNH**\n\n**Voice:**\n\`!join\` - Bot vào voice\n\`!leave\` - Bot rời voice\n\n**Thông tin:**\n\`/avatar @user\` - Xem avatar\n\`/banner @user\` - Xem banner\n\`/help\` - Xem lệnh (slash)\n\n**Quản lý:**\n\`!setowner @user\` - Set owner\n\`!removeowner @user\` - Gỡ owner\n\`!owners\` - List owner\n\`!mute @user\` \`!unmute\` \`!ban\` \`!unban\`\n\n**Bot Owner Only:**\n\`!set avatar [link hoặc đính kèm ảnh]\` - Đổi avatar bot\n\`!set banner [link]\` - Đổi banner bot\n\`!ges\` - Lấy link GES\n\n**Link:** ${INVITE_LINK}`);
     }
-
     if(name==="ges") return message.reply(`**Join GES:** ${INVITE_LINK}`);
 
-    // SET AVATAR / BANNER - CHỈ OWNER BOT MỚI ĐƯỢC DÙNG
     if(name==="set"){
       const sub = args[0]?.toLowerCase();
-      // Check owner bot - chỉ người set owner hoặc chủ server
       const isOwner = ownersData[message.guild.id]?.includes(message.author.id) || message.guild.ownerId === message.author.id;
       if(!isOwner) return message.reply("Chỉ owner mới đổi được avatar/banner ní ơi!");
-
       if(sub==="avatar"){
         let url = message.attachments.first()?.url || args[1];
         if(!url) return message.reply("Gửi kèm ảnh hoặc dán link: `!set avatar https://link-anh.png`");
-        try{
-          await client.user.setAvatar(url);
-          return message.reply(`✅ Đã đổi avatar bot thành kính VR như này rồi ní! 🥽`);
-        }catch(e){ return message.reply(`Lỗi: ${e.message}`); }
+        try{ await client.user.setAvatar(url); return message.reply(`✅ Đã đổi avatar bot thành kính VR như này rồi ní! 🥽`); }catch(e){ return message.reply(`Lỗi: ${e.message}`); }
       }
       if(sub==="banner"){
         let url = message.attachments.first()?.url || args[1];
         if(!url) return message.reply("Dán link banner: `!set banner https://link-anh.png` - Cần bot có Nitro");
-        try{
-          await client.user.setBanner(url);
-          return message.reply(`✅ Đã đổi banner bot!`);
-        }catch(e){ return message.reply(`Lỗi banner (cần Nitro): ${e.message}`); }
+        try{ await client.user.setBanner(url); return message.reply(`✅ Đã đổi banner bot!`); }catch(e){ return message.reply(`Lỗi banner (cần Nitro): ${e.message}`); }
       }
     }
-
     if(name==="setowner"){ const ids = message.mentions.users.map(u=>u.id); if(!ids.length) return message.reply("Tag user đi"); ownersData[message.guild.id] = [...new Set([...(ownersData[message.guild.id]||[]), ...ids])]; saveOwners(); return message.reply(`Đã set owner: ${ids.map(i=>`<@${i}>`).join(", ")}`); }
     if(name==="owners"){ const list = ownersData[message.guild.id]||[]; return message.reply(list.length ? `Owner: ${list.map(i=>`<@${i}>`).join(", ")}` : "Chưa có"); }
     if(name==="removeowner"){ const ids = message.mentions.users.map(u=>u.id); ownersData[message.guild.id] = (ownersData[message.guild.id]||[]).filter(x=>!ids.includes(x)); saveOwners(); return message.reply("Đã gỡ"); }
@@ -93,7 +84,6 @@ async function startBot(token, label){
     if(name==="unmute"){ const m = message.mentions.members.first(); if(!m) return; await m.timeout(null); return message.reply(`Unmuted ${m}`); }
     if(name==="ban"){ const u = message.mentions.users.first(); if(!u) return; await message.guild.bans.create(u.id); return message.reply(`Banned ${u.tag}`); }
     if(name==="unban"){ if(!args[0]) return; await message.guild.bans.remove(args[0]); return message.reply(`Unbanned ${args[0]}`); }
-
     if(name==="join"){
       const vc = message.member?.voice.channel;
       if(!vc) return message.reply("Vào voice trước đi ní!");
@@ -108,15 +98,10 @@ async function startBot(token, label){
   client.on("interactionCreate", async (i)=>{
     if(!i.isChatInputCommand()) return;
     await i.deferReply();
-
     if(i.commandName==="help"){
-      const panel = new ContainerBuilder()
-        .setAccentColor(0x00FF7F)
-        .addTextDisplayComponents(t=>t.setContent(`## 🥽 GES VR BOT - HELP\n**Kính VR màu xanh như ảnh ní gửi**`))
-        .addTextDisplayComponents(t=>t.setContent(`**🎙️ Voice**\n\`!join\` - Vào voice\n\`!leave\` - Rời voice\n\n**👤 Info**\n\`/avatar\` - Xem avatar\n\`/banner\` - Xem banner\n\n**🛠️ Mod**\n\`!setowner\` \`!owners\` \`!mute\` \`!ban\`\n\n**🤖 Bot Owner**\n\`!set avatar\` - Đổi avatar bot (gửi kèm ảnh kính VR)\n\`!set banner\` - Đổi banner bot\n\n**🔗 Link**\nJoin GES: ${INVITE_LINK}`));
+      const panel = new ContainerBuilder().setAccentColor(0x00FF7F).addTextDisplayComponents(t=>t.setContent(`## 🥽 GES VR BOT - HELP\n**Kính VR màu xanh**`)).addTextDisplayComponents(t=>t.setContent(`**🎙️ Voice**\n\`!join\` - Vào voice\n\`!leave\` - Rời voice\n\n**👤 Info**\n\`/avatar\` - Xem avatar\n\`/banner\` - Xem banner\n\n**🛠️ Mod**\n\`!setowner\` \`!owners\` \`!mute\` \`!ban\`\n\n**🤖 Bot Owner**\n\`!set avatar\` - Đổi avatar bot\n\`!set banner\` - Đổi banner bot\n\n**🔗 Link**\nJoin GES: ${INVITE_LINK}`));
       return i.editReply({ components:[panel], flags: MessageFlags.IsComponentsV2 });
     }
-
     const targetId = i.options.getUser("user")?.id ?? i.user.id;
     const user = await client.users.fetch(targetId, {force:true});
     if(i.commandName==="avatar"){
