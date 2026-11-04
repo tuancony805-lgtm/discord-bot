@@ -4,15 +4,12 @@ import { ActivityType, Client, ContainerBuilder, GatewayIntentBits, MessageFlags
 import { joinVoiceChannel } from "@discordjs/voice";
 
 const PREFIX = "!";
-const ownersMap = new Map();
-
-// Đọc owner từ file
 if (!fs.existsSync("./data")) fs.mkdirSync("./data");
 const OWNER_FILE = "./data/owners.json";
 let ownersData = {};
 try { ownersData = JSON.parse(fs.readFileSync(OWNER_FILE,"utf8")); } catch {}
-
 function saveOwners(){ fs.writeFileSync(OWNER_FILE, JSON.stringify(ownersData)); }
+
 const MOD_CMDS = new Set(["setowner","removeowner","owners","mute","unmute","ban","unban","help"]);
 
 class VoiceManager {
@@ -35,8 +32,10 @@ function leave(voice, guildId){
 async function startBot(token, label){
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
   const voice = new VoiceManager(label);
-  client.once("ready", ()=>{ console.log(`[${label}] Online ${client.user.tag}`); client.user.setPresence({ status:"online", activities:[{ name:"Built with VybeBot.ai | VYBEVIP", type: ActivityType.Watching }] }); });
-  
+  client.once("ready", ()=>{
+    console.log(`[${label}] Online ${client.user.tag}`);
+    client.user.setPresence({ status:"online", activities:[{ name:"Built with VybeBot.ai | VYBEVIP", type: ActivityType.Watching }] });
+  });
   client.on("messageCreate", async (message)=>{
     if(message.author.bot) return;
     if(!message.guild) return;
@@ -46,20 +45,10 @@ async function startBot(token, label){
     const name = tokens[0].toLowerCase();
     const args = tokens.slice(1);
 
-    // moderation - ông gửi tui đó
     if(MOD_CMDS.has(name)){
       if(name==="help") return message.reply("`!join !leave !setowner @user !removeowner @user !owners !mute @user 10m !unmute @user !ban @user !unban id`");
-      if(name==="setowner"){ 
-        const ids = message.mentions.users.map(u=>u.id);
-        if(!ids.length) return message.reply("Tag người đi");
-        ownersData[message.guild.id] = [...new Set([...(ownersData[message.guild.id]||[]), ...ids])];
-        saveOwners(); return message.reply(`Đã set owner: ${ids.map(i=>`<@${i}>`).join(", ")}`);
-      }
-      if(name==="owners"){
-        const list = ownersData[message.guild.id]||[];
-        return message.reply(list.length ? `Owner: ${list.map(i=>`<@${i}>`).join(", ")}` : "Chưa có owner");
-      }
-      // mute/ban... giữ nguyên logic discord.js
+      if(name==="setowner"){ const ids = message.mentions.users.map(u=>u.id); if(!ids.length) return message.reply("Tag người đi"); ownersData[message.guild.id] = [...new Set([...(ownersData[message.guild.id]||[]), ...ids])]; saveOwners(); return message.reply(`Đã set owner: ${ids.map(i=>`<@${i}>`).join(", ")}`); }
+      if(name==="owners"){ const list = ownersData[message.guild.id]||[]; return message.reply(list.length ? `Owner: ${list.map(i=>`<@${i}>`).join(", ")}` : "Chưa có owner"); }
       if(name==="mute"){ const user = message.mentions.members.first(); if(!user) return; await user.timeout(10*60*1000, "mute"); return message.reply(`Đã mute ${user}`); }
       if(name==="unmute"){ const user = message.mentions.members.first(); if(!user) return; await user.timeout(null); return message.reply(`Đã unmute ${user}`); }
       if(name==="ban"){ const user = message.mentions.users.first(); if(!user) return; await message.guild.bans.create(user.id); return message.reply(`Đã ban ${user.tag}`); }
@@ -67,9 +56,9 @@ async function startBot(token, label){
       if(name==="removeowner"){ const ids = message.mentions.users.map(u=>u.id); ownersData[message.guild.id] = (ownersData[message.guild.id]||[]).filter(x=>!ids.includes(x)); saveOwners(); return message.reply("Đã gỡ"); }
       return;
     }
-
     if(name==="join"){
-      const vc = message.member?.voice.channel; if(!vc) return message.reply("Bạn phải vào voice trước đã Ní ơi");
+      const vc = message.member?.voice.channel;
+      if(!vc) return message.reply("Bạn phải vào voice trước đã Ní ơi");
       leave(voice, message.guild.id);
       const conn = joinVoiceChannel({ channelId: vc.id, guildId: message.guild.id, adapterCreator: message.guild.voiceAdapterCreator, group: voice.group, selfDeaf:true, selfMute:true });
       voice.setConnection(message.guild.id, conn);
@@ -88,8 +77,9 @@ async function startBot(token, label){
       return i.editReply({ components:[panel], flags: MessageFlags.IsComponentsV2 });
     }
     if(i.commandName==="banner"){
-      const url = user.bannerURL({size:1024}); if(!url) return i.editReply("Chưa có banner");
-      const panel = new ContainerBuilder().setAccentColor(0x5865f2).addTextDisplayComponents(t=>t.setContent(`**Banner của ${user.tag}**`)).addMediaGalleryComponents(g=>g.addItems(x=>x.setURL(url))));
+      const url = user.bannerURL({size:1024});
+      if(!url) return i.editReply("Chưa có banner");
+      const panel = new ContainerBuilder().setAccentColor(0x5865f2).addTextDisplayComponents(t=>t.setContent(`**Banner của ${user.tag}**`)).addMediaGalleryComponents(g=>g.addItems(x=>x.setURL(url)));
       return i.editReply({ components:[panel], flags: MessageFlags.IsComponentsV2 });
     }
   });
@@ -100,9 +90,9 @@ async function startBot(token, label){
   return client;
 }
 
-const t1 = process.env.DISCORD_TOKEN;
+const t1 = process.env.TOKEN || process.env.DISCORD_TOKEN;
 const t2 = process.env.DISCORD_TOKEN2;
-if(!t1) throw new Error("Thiếu DISCORD_TOKEN");
+if(!t1) throw new Error("Thiếu TOKEN - kiểm tra Variables trên Railway");
 await startBot(t1, "emuk");
 if(t2) await startBot(t2, "Văn Phát");
 console.log("Cả 2 bot chạy rồi");
