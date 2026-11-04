@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import fs from "fs";
-import { ActivityType, Client, ContainerBuilder, GatewayIntentBits, MessageFlags, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } from "discord.js";
+import { ActivityType, Client, ContainerBuilder, GatewayIntentBits, MessageFlags, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { joinVoiceChannel } from "@discordjs/voice";
 
 // WEB SERVER RENDER
@@ -13,7 +13,6 @@ app.listen(process.env.PORT || 10000, () => console.log(`Web server on ${process
 const PREFIX = "!";
 const INVITE_LINK = "https://discord.gg/J4v2WDsGjP";
 
-// DATA
 if (!fs.existsSync("./data")) fs.mkdirSync("./data");
 const OWNER_FILE = "./data/owners.json";
 const FAKE_BANNER_FILE = "./data/fakebanner.json";
@@ -28,7 +27,7 @@ function leave(voice, guildId){ const c = voice.getConnection(guildId); voice.re
 
 const avatarCmd = new SlashCommandBuilder().setName("avatar").setDescription("Xem avatar").addUserOption(o=>o.setName("user").setDescription("user").setRequired(false));
 const bannerCmd = new SlashCommandBuilder().setName("banner").setDescription("Xem banner").addUserOption(o=>o.setName("user").setDescription("user").setRequired(false));
-const helpCmd = new SlashCommandBuilder().setName("help").setDescription("Xem tất cả lệnh");
+const helpCmd = new SlashCommandBuilder().setName("help").setDescription("Xem tất cả lệnh của bot GES VR");
 
 async function startBot(token, label){
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
@@ -39,20 +38,28 @@ async function startBot(token, label){
     if(message.author.bot || !message.guild) return;
     const content = message.content.trim();
     if(!content.startsWith(PREFIX)) return;
-    const [cmdName, ...args] = content.slice(1).split(/\s+/);
-    const name = cmdName.toLowerCase();
-    const isOwner = ownersData[message.guild.id]?.includes(message.author.id) || message.guild.ownerId === message.author.id;
+    
+    let cmdName = content.slice(1).split(/\s+/)[0].toLowerCase();
+    let args = content.slice(1).split(/\s+/).slice(1);
+    let name = cmdName;
+    if(name==="set" && (args[0]?.toLowerCase()==="owner" || args[0]?.toLowerCase()==="owners")){ name = "setowner"; args = args.slice(1); }
+    if(name==="setowners" || name==="addowner") name = "setowner";
+    if(name==="removeowners") name = "removeowner";
 
-    if(name==="help") return message.reply(`**🥽 GES VR BOT**\n\`!join\` / \`!leave\`\n\`!lock\` - Khóa kênh\n\`!unlock\` - Mở kênh\n\`!setowner\` \`!owners\` \`!mute\` \`!ban\`\n\`!set avatar [link/ảnh]\` - Đổi avatar\n\`!set banner [link/ảnh]\` - Đổi banner thật (cần Nitro) + tự lưu banner ảo\n\`!set banner ảo [link]\` - Set banner ảo không cần Nitro\nLink: ${INVITE_LINK}`);
+    const owners = ownersData[message.guild.id] || [];
+    const isOwner = owners.includes(message.author.id) || message.guild.ownerId === message.author.id;
 
-    // ===== MỚI: LOCK / UNLOCK =====
+    if(name==="help"){
+      return message.reply(`**🥽 GES VR BOT - FULL LỆNH**\n\n**🎙️ Voice:**\n\`!join\` - Bot vào voice\n\`!leave\` - Bot rời voice\n\n**🔒 Channel (Chỉ Owner):**\n\`!lock\` - Khóa kênh hiện tại\n\`!unlock\` - Mở khóa kênh\n\n**👤 Thông tin:**\n\`/avatar @user\` - Xem avatar\n\`/banner @user\` - Xem banner\n\`/help\` - Xem bảng này\n\n**🛠️ Quản lý (Chỉ Owner):**\n\`!setowner @user\` / \`!set owners @user\` - Thêm owner\n\`!removeowner @user\` - Gỡ owner\n\`!owners\` - Xem danh sách owner\n\`!mute @user\` - Mute 10p\n\`!unmute @user\`\n\`!ban @user\` / \`!unban ID\`\n\n**🤖 Bot Owner:**\n\`!set avatar [ảnh]\` - Đổi avatar bot\n\`!set banner [link]\` - Đổi banner thật\n\`!set banner ảo [link]\` - Đổi banner ảo (ko cần Nitro)\n\n**🔗 GES:** ${INVITE_LINK}`);
+    }
+
     if(name==="lock" || name==="lockchannel"){
-      if(!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) return message.reply("Cần quyền Manage Channels");
+      if(!isOwner) return message.reply("❌ Chỉ Owner (`!set owners`) mới được khóa kênh ní ơi!");
       await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: false });
-      return message.reply(`🔒 Đã khóa ${message.channel}`);
+      return message.reply(`🔒 Đã khóa ${message.channel} | Chỉ Owner mới mở được`);
     }
     if(name==="unlock" || name==="unlockchannel"){
-      if(!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) return message.reply("Cần quyền Manage Channels");
+      if(!isOwner) return message.reply("❌ Chỉ Owner mới được mở khóa!");
       await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: null });
       return message.reply(`🔓 Đã mở khóa ${message.channel}`);
     }
@@ -68,50 +75,47 @@ async function startBot(token, label){
         try{ await client.user.setAvatar(url); return message.reply("✅ Đã đổi avatar! 🥽"); }catch(e){ return message.reply(`Lỗi: ${e.message}`); }
       }
       if(sub==="banner"){
-        let url = message.attachments.first()?.url || args[1];
         let isAo = args.includes("ảo") || args.includes("ao");
+        let url = message.attachments.first()?.url || args[1];
         if(args[1]?.toLowerCase()==="ảo" || args[1]?.toLowerCase()==="ao") url = message.attachments.first()?.url || args[2];
         if(!url) return message.reply("Dùng: `!set banner https://link.png` hoặc `!set banner ảo https://link.png`");
-
-        // Lưu banner ảo luôn để /banner hiện ngay
-        fakeBanners[client.user.id] = url;
-        saveFake();
-
-        if(isAo){
-          return message.reply(`✅ Đã set banner ẢO: ${url} (Dùng /banner @bot để xem)`);
-        }
-        // Thử set banner thật
-        try{
-          await client.user.setBanner(url);
-          return message.reply(`✅ Đã đổi banner THẬT + ẢO luôn! (Nếu bot có Nitro sẽ đổi thật, không thì vẫn hiện ảo)`);
-        }catch(e){
-          return message.reply(`⚠️ Banner thật cần Nitro nên lỗi: ${e.message}\nNhưng tui đã lưu banner ẢO rồi, gõ \`/banner @bot\` là thấy ngay! ✅\nLink ảo: ${url}`);
-        }
+        fakeBanners[client.user.id] = url; saveFake();
+        if(isAo) return message.reply(`✅ Đã set banner ẢO: ${url}`);
+        try{ await client.user.setBanner(url); return message.reply(`✅ Đã đổi cả THẬT + ẢO!`); }
+        catch(e){ return message.reply(`⚠️ Thật cần Nitro nên lỗi: ${e.message}\nNhưng đã lưu ẢO rồi, /banner @bot là thấy!`); }
       }
     }
-    if(name==="setowner"){ const ids = message.mentions.users.map(u=>u.id); if(!ids.length) return message.reply("Tag user"); ownersData[message.guild.id] = [...new Set([...(ownersData[message.guild.id]||[]), ...ids])]; saveOwners(); return message.reply(`Đã set owner: ${ids.map(i=>`<@${i}>`).join(", ")}`); }
-    if(name==="owners"){ const list = ownersData[message.guild.id]||[]; return message.reply(list.length ? `Owner: ${list.map(i=>`<@${i}>`).join(", ")}` : "Chưa có"); }
-    if(name==="removeowner"){ const ids = message.mentions.users.map(u=>u.id); ownersData[message.guild.id] = (ownersData[message.guild.id]||[]).filter(x=>!ids.includes(x)); saveOwners(); return message.reply("Đã gỡ"); }
-    if(name==="mute"){ const m = message.mentions.members.first(); if(!m) return; await m.timeout(10*60*1000); return message.reply(`Muted ${m}`); }
-    if(name==="unmute"){ const m = message.mentions.members.first(); if(!m) return; await m.timeout(null); return message.reply(`Unmuted ${m}`); }
-    if(name==="ban"){ const u = message.mentions.users.first(); if(!u) return; await message.guild.bans.create(u.id); return message.reply(`Banned ${u.tag}`); }
-    if(name==="unban"){ if(!args[0]) return; await message.guild.bans.remove(args[0]); return message.reply(`Unbanned ${args[0]}`); }
+
+    if(name==="setowner"){
+      // CHỈ CHỦ SERVER MỚI ĐƯỢC SET OWNER ĐẦU TIÊN - sau đó owner được set cũng set được tiếp
+      if(owners.length>0 && !isOwner) return message.reply("❌ Chỉ Owner mới được thêm owner khác!");
+      const ids = message.mentions.users.map(u=>u.id);
+      if(!ids.length) return message.reply("Tag user đi: `!set owners @user`");
+      ownersData[message.guild.id] = [...new Set([...(ownersData[message.guild.id]||[]), ...ids])]; saveOwners();
+      return message.reply(`✅ Đã set owner quyền cao: ${ids.map(i=>`<@${i}>`).join(", ")} - Giờ dùng được !lock !unlock luôn`);
+    }
+    if(name==="owners"){ const list = ownersData[message.guild.id]||[]; return message.reply(list.length ? `Owner quyền cao: ${list.map(i=>`<@${i}>`).join(", ")}` : "Chưa có owner nào"); }
+    if(name==="removeowner"){ if(!isOwner) return message.reply("Chỉ Owner mới gỡ được"); const ids = message.mentions.users.map(u=>u.id); ownersData[message.guild.id] = (ownersData[message.guild.id]||[]).filter(x=>!ids.includes(x)); saveOwners(); return message.reply("Đã gỡ owner"); }
+    if(name==="mute"){ if(!isOwner) return message.reply("Chỉ Owner"); const m = message.mentions.members.first(); if(!m) return; await m.timeout(10*60*1000); return message.reply(`Muted ${m}`); }
+    if(name==="unmute"){ if(!isOwner) return message.reply("Chỉ Owner"); const m = message.mentions.members.first(); if(!m) return; await m.timeout(null); return message.reply(`Unmuted ${m}`); }
+    if(name==="ban"){ if(!isOwner) return message.reply("Chỉ Owner"); const u = message.mentions.users.first(); if(!u) return; await message.guild.bans.create(u.id); return message.reply(`Banned ${u.tag}`); }
+    if(name==="unban"){ if(!isOwner) return message.reply("Chỉ Owner"); if(!args[0]) return; await message.guild.bans.remove(args[0]); return message.reply(`Unbanned ${args[0]}`); }
     if(name==="join"){
-      const vc = message.member?.voice.channel;
-      if(!vc) return message.reply("Vào voice trước đi ní!");
+      const vc = message.member?.voice.channel; if(!vc) return message.reply("Vào voice trước đi ní!");
       leave(voice, message.guild.id);
       const conn = joinVoiceChannel({ channelId: vc.id, guildId: message.guild.id, adapterCreator: message.guild.voiceAdapterCreator, group: voice.group, selfDeaf:true, selfMute:false });
-      voice.setConnection(message.guild.id, conn);
-      return message.reply(`🥽 Đã vào **${vc.name}**`);
+      voice.setConnection(message.guild.id, conn); return message.reply(`🥽 Đã vào **${vc.name}**`);
     }
-    if(name==="leave"){ leave(voice, message.guild.id); return message.reply("Đã rời voice"); }
+    if(name==="leave"){ if(!isOwner) return message.reply("Chỉ Owner"); leave(voice, message.guild.id); return message.reply("Đã rời voice"); }
   });
 
   client.on("interactionCreate", async (i)=>{
     if(!i.isChatInputCommand()) return;
     await i.deferReply();
     if(i.commandName==="help"){
-      const panel = new ContainerBuilder().setAccentColor(0x00FF7F).addTextDisplayComponents(t=>t.setContent(`## 🥽 GES VR BOT\n**!lock** khóa kênh, **!unlock** mở\n**!set banner ảo [link]** đổi banner ảo không cần Nitro`));
+      const panel = new ContainerBuilder().setAccentColor(0x00FF7F)
+      .addTextDisplayComponents(t=>t.setContent(`## 🥽 GES VR BOT - FULL LỆNH`))
+      .addTextDisplayComponents(t=>t.setContent(`**🎙️ Voice**\n\`!join\` - Vào voice\n\`!leave\` - Rời voice\n\n**🔒 Channel (Chỉ Owner)**\n\`!lock\` - Khóa kênh\n\`!unlock\` - Mở khóa\n\n**👤 Info**\n\`/avatar @user\` - Xem avatar\n\`/banner @user\` - Xem banner\n\n**🛠️ Quản lý (Chỉ Owner)**\n\`!setowner @user\` / \`!set owners @user\`\n\`!owners\` - List owner\n\`!mute\` \`!unmute\` \`!ban\` \`!unban\`\n\n**🤖 Bot**\n\`!set avatar\` - Đổi avatar\n\`!set banner\` / \`!set banner ảo\`\n\n**🔗 Link: ${INVITE_LINK}**`));
       return i.editReply({ components:[panel], flags: MessageFlags.IsComponentsV2 });
     }
     const targetId = i.options.getUser("user")?.id ?? i.user.id;
@@ -122,7 +126,6 @@ async function startBot(token, label){
       return i.editReply({ components:[panel], flags: MessageFlags.IsComponentsV2 });
     }
     if(i.commandName==="banner"){
-      // Nếu xem banner bot mà có banner ảo thì hiện banner ảo
       let url = user.bannerURL({size:1024});
       if(user.id === client.user.id && fakeBanners[user.id]) url = fakeBanners[user.id];
       if(!url) return i.editReply("Chưa có banner");
