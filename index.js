@@ -1,54 +1,39 @@
 import "dotenv/config";
 import express from "express";
 import fs from "fs";
-import { ActivityType, Client, ContainerBuilder, GatewayIntentBits, MessageFlags, REST, Routes, SlashCommandBuilder } from "discord.js";
+import { ActivityType, Client, ContainerBuilder, GatewayIntentBits, MessageFlags, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } from "discord.js";
 import { joinVoiceChannel } from "@discordjs/voice";
 
-// ===== WEB SERVER CHO RENDER - FIX No open ports =====
+// WEB SERVER RENDER
 const app = express();
 app.get("/", (req, res) => res.send("GES VR Bot Running - OK"));
 app.get("/ping", (req, res) => res.send("pong"));
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Web server on ${PORT}`));
-// =====================================================
+app.listen(process.env.PORT || 10000, () => console.log(`Web server on ${process.env.PORT || 10000}`));
 
 const PREFIX = "!";
 const INVITE_LINK = "https://discord.gg/J4v2WDsGjP";
 
-// Data owner
+// DATA
 if (!fs.existsSync("./data")) fs.mkdirSync("./data");
 const OWNER_FILE = "./data/owners.json";
-let ownersData = {};
+const FAKE_BANNER_FILE = "./data/fakebanner.json";
+let ownersData = {}; let fakeBanners = {};
 try { ownersData = JSON.parse(fs.readFileSync(OWNER_FILE,"utf8")); } catch {}
+try { fakeBanners = JSON.parse(fs.readFileSync(FAKE_BANNER_FILE,"utf8")); } catch {}
 function saveOwners(){ fs.writeFileSync(OWNER_FILE, JSON.stringify(ownersData)); }
+function saveFake(){ fs.writeFileSync(FAKE_BANNER_FILE, JSON.stringify(fakeBanners)); }
 
-class VoiceManager {
-  constructor(g){ this.group=g; this.connections=new Map(); }
-  getConnection(id){ return this.connections.get(id); }
-  setConnection(id,c){ this.connections.set(id,c); }
-  removeConnection(id){ this.connections.delete(id); }
-}
-function leave(voice, guildId){
-  const c = voice.getConnection(guildId);
-  voice.removeConnection(guildId);
-  if(c) try{ c.destroy(); } catch{}
-}
+class VoiceManager { constructor(g){ this.group=g; this.connections=new Map(); } getConnection(id){ return this.connections.get(id); } setConnection(id,c){ this.connections.set(id,c); } removeConnection(id){ this.connections.delete(id); } }
+function leave(voice, guildId){ const c = voice.getConnection(guildId); voice.removeConnection(guildId); if(c) try{ c.destroy(); } catch{} }
 
-// SLASH COMMANDS
 const avatarCmd = new SlashCommandBuilder().setName("avatar").setDescription("Xem avatar").addUserOption(o=>o.setName("user").setDescription("user").setRequired(false));
 const bannerCmd = new SlashCommandBuilder().setName("banner").setDescription("Xem banner").addUserOption(o=>o.setName("user").setDescription("user").setRequired(false));
-const helpCmd = new SlashCommandBuilder().setName("help").setDescription("Xem tất cả lệnh của bot GES VR");
+const helpCmd = new SlashCommandBuilder().setName("help").setDescription("Xem tất cả lệnh");
 
 async function startBot(token, label){
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
   const voice = new VoiceManager(label);
-  client.once("ready", ()=>{
-    console.log(`[${label}] Online ${client.user.tag}`);
-    client.user.setPresence({ 
-      status: "online", 
-      activities: [{ name: "🥽 VR | Join GES", type: ActivityType.Watching }] 
-    });
-  });
+  client.once("ready", ()=>{ console.log(`[${label}] Online ${client.user.tag}`); client.user.setPresence({ status: "online", activities: [{ name: "🥽 VR | Join GES", type: ActivityType.Watching }] }); });
 
   client.on("messageCreate", async (message)=>{
     if(message.author.bot || !message.guild) return;
@@ -56,28 +41,55 @@ async function startBot(token, label){
     if(!content.startsWith(PREFIX)) return;
     const [cmdName, ...args] = content.slice(1).split(/\s+/);
     const name = cmdName.toLowerCase();
+    const isOwner = ownersData[message.guild.id]?.includes(message.author.id) || message.guild.ownerId === message.author.id;
 
-    if(name==="help"){
-      return message.reply(`**🥽 GES VR BOT - DANH SÁCH LỆNH**\n\n**Voice:**\n\`!join\` - Bot vào voice\n\`!leave\` - Bot rời voice\n\n**Thông tin:**\n\`/avatar @user\` - Xem avatar\n\`/banner @user\` - Xem banner\n\`/help\` - Xem lệnh (slash)\n\n**Quản lý:**\n\`!setowner @user\` - Set owner\n\`!removeowner @user\` - Gỡ owner\n\`!owners\` - List owner\n\`!mute @user\` \`!unmute\` \`!ban\` \`!unban\`\n\n**Bot Owner Only:**\n\`!set avatar [link hoặc đính kèm ảnh]\` - Đổi avatar bot\n\`!set banner [link]\` - Đổi banner bot\n\`!ges\` - Lấy link GES\n\n**Link:** ${INVITE_LINK}`);
+    if(name==="help") return message.reply(`**🥽 GES VR BOT**\n\`!join\` / \`!leave\`\n\`!lock\` - Khóa kênh\n\`!unlock\` - Mở kênh\n\`!setowner\` \`!owners\` \`!mute\` \`!ban\`\n\`!set avatar [link/ảnh]\` - Đổi avatar\n\`!set banner [link/ảnh]\` - Đổi banner thật (cần Nitro) + tự lưu banner ảo\n\`!set banner ảo [link]\` - Set banner ảo không cần Nitro\nLink: ${INVITE_LINK}`);
+
+    // ===== MỚI: LOCK / UNLOCK =====
+    if(name==="lock" || name==="lockchannel"){
+      if(!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) return message.reply("Cần quyền Manage Channels");
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: false });
+      return message.reply(`🔒 Đã khóa ${message.channel}`);
     }
-    if(name==="ges") return message.reply(`**Join GES:** ${INVITE_LINK}`);
+    if(name==="unlock" || name==="unlockchannel"){
+      if(!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) return message.reply("Cần quyền Manage Channels");
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: null });
+      return message.reply(`🔓 Đã mở khóa ${message.channel}`);
+    }
+
+    if(name==="ges") return message.reply(INVITE_LINK);
 
     if(name==="set"){
       const sub = args[0]?.toLowerCase();
-      const isOwner = ownersData[message.guild.id]?.includes(message.author.id) || message.guild.ownerId === message.author.id;
-      if(!isOwner) return message.reply("Chỉ owner mới đổi được avatar/banner ní ơi!");
+      if(!isOwner) return message.reply("Chỉ owner mới được đổi ní ơi!");
       if(sub==="avatar"){
         let url = message.attachments.first()?.url || args[1];
-        if(!url) return message.reply("Gửi kèm ảnh hoặc dán link: `!set avatar https://link-anh.png`");
-        try{ await client.user.setAvatar(url); return message.reply(`✅ Đã đổi avatar bot thành kính VR như này rồi ní! 🥽`); }catch(e){ return message.reply(`Lỗi: ${e.message}`); }
+        if(!url) return message.reply("Gửi kèm ảnh: `!set avatar` + ảnh");
+        try{ await client.user.setAvatar(url); return message.reply("✅ Đã đổi avatar! 🥽"); }catch(e){ return message.reply(`Lỗi: ${e.message}`); }
       }
       if(sub==="banner"){
         let url = message.attachments.first()?.url || args[1];
-        if(!url) return message.reply("Dán link banner: `!set banner https://link-anh.png` - Cần bot có Nitro");
-        try{ await client.user.setBanner(url); return message.reply(`✅ Đã đổi banner bot!`); }catch(e){ return message.reply(`Lỗi banner (cần Nitro): ${e.message}`); }
+        let isAo = args.includes("ảo") || args.includes("ao");
+        if(args[1]?.toLowerCase()==="ảo" || args[1]?.toLowerCase()==="ao") url = message.attachments.first()?.url || args[2];
+        if(!url) return message.reply("Dùng: `!set banner https://link.png` hoặc `!set banner ảo https://link.png`");
+
+        // Lưu banner ảo luôn để /banner hiện ngay
+        fakeBanners[client.user.id] = url;
+        saveFake();
+
+        if(isAo){
+          return message.reply(`✅ Đã set banner ẢO: ${url} (Dùng /banner @bot để xem)`);
+        }
+        // Thử set banner thật
+        try{
+          await client.user.setBanner(url);
+          return message.reply(`✅ Đã đổi banner THẬT + ẢO luôn! (Nếu bot có Nitro sẽ đổi thật, không thì vẫn hiện ảo)`);
+        }catch(e){
+          return message.reply(`⚠️ Banner thật cần Nitro nên lỗi: ${e.message}\nNhưng tui đã lưu banner ẢO rồi, gõ \`/banner @bot\` là thấy ngay! ✅\nLink ảo: ${url}`);
+        }
       }
     }
-    if(name==="setowner"){ const ids = message.mentions.users.map(u=>u.id); if(!ids.length) return message.reply("Tag user đi"); ownersData[message.guild.id] = [...new Set([...(ownersData[message.guild.id]||[]), ...ids])]; saveOwners(); return message.reply(`Đã set owner: ${ids.map(i=>`<@${i}>`).join(", ")}`); }
+    if(name==="setowner"){ const ids = message.mentions.users.map(u=>u.id); if(!ids.length) return message.reply("Tag user"); ownersData[message.guild.id] = [...new Set([...(ownersData[message.guild.id]||[]), ...ids])]; saveOwners(); return message.reply(`Đã set owner: ${ids.map(i=>`<@${i}>`).join(", ")}`); }
     if(name==="owners"){ const list = ownersData[message.guild.id]||[]; return message.reply(list.length ? `Owner: ${list.map(i=>`<@${i}>`).join(", ")}` : "Chưa có"); }
     if(name==="removeowner"){ const ids = message.mentions.users.map(u=>u.id); ownersData[message.guild.id] = (ownersData[message.guild.id]||[]).filter(x=>!ids.includes(x)); saveOwners(); return message.reply("Đã gỡ"); }
     if(name==="mute"){ const m = message.mentions.members.first(); if(!m) return; await m.timeout(10*60*1000); return message.reply(`Muted ${m}`); }
@@ -90,7 +102,7 @@ async function startBot(token, label){
       leave(voice, message.guild.id);
       const conn = joinVoiceChannel({ channelId: vc.id, guildId: message.guild.id, adapterCreator: message.guild.voiceAdapterCreator, group: voice.group, selfDeaf:true, selfMute:false });
       voice.setConnection(message.guild.id, conn);
-      return message.reply(`🥽 Đã vào **${vc.name}** | ${INVITE_LINK}`);
+      return message.reply(`🥽 Đã vào **${vc.name}**`);
     }
     if(name==="leave"){ leave(voice, message.guild.id); return message.reply("Đã rời voice"); }
   });
@@ -99,20 +111,22 @@ async function startBot(token, label){
     if(!i.isChatInputCommand()) return;
     await i.deferReply();
     if(i.commandName==="help"){
-      const panel = new ContainerBuilder().setAccentColor(0x00FF7F).addTextDisplayComponents(t=>t.setContent(`## 🥽 GES VR BOT - HELP\n**Kính VR màu xanh**`)).addTextDisplayComponents(t=>t.setContent(`**🎙️ Voice**\n\`!join\` - Vào voice\n\`!leave\` - Rời voice\n\n**👤 Info**\n\`/avatar\` - Xem avatar\n\`/banner\` - Xem banner\n\n**🛠️ Mod**\n\`!setowner\` \`!owners\` \`!mute\` \`!ban\`\n\n**🤖 Bot Owner**\n\`!set avatar\` - Đổi avatar bot\n\`!set banner\` - Đổi banner bot\n\n**🔗 Link**\nJoin GES: ${INVITE_LINK}`));
+      const panel = new ContainerBuilder().setAccentColor(0x00FF7F).addTextDisplayComponents(t=>t.setContent(`## 🥽 GES VR BOT\n**!lock** khóa kênh, **!unlock** mở\n**!set banner ảo [link]** đổi banner ảo không cần Nitro`));
       return i.editReply({ components:[panel], flags: MessageFlags.IsComponentsV2 });
     }
     const targetId = i.options.getUser("user")?.id ?? i.user.id;
     const user = await client.users.fetch(targetId, {force:true});
     if(i.commandName==="avatar"){
       const url = user.displayAvatarURL({size:1024});
-      const panel = new ContainerBuilder().setAccentColor(0x00FF7F).addTextDisplayComponents(t=>t.setContent(`**🥽 VR Avatar của ${user.tag}**\n${INVITE_LINK}`)).addMediaGalleryComponents(g=>g.addItems(x=>x.setURL(url)));
+      const panel = new ContainerBuilder().setAccentColor(0x00FF7F).addTextDisplayComponents(t=>t.setContent(`**Avatar ${user.tag}**`)).addMediaGalleryComponents(g=>g.addItems(x=>x.setURL(url)));
       return i.editReply({ components:[panel], flags: MessageFlags.IsComponentsV2 });
     }
     if(i.commandName==="banner"){
-      const url = user.bannerURL({size:1024});
+      // Nếu xem banner bot mà có banner ảo thì hiện banner ảo
+      let url = user.bannerURL({size:1024});
+      if(user.id === client.user.id && fakeBanners[user.id]) url = fakeBanners[user.id];
       if(!url) return i.editReply("Chưa có banner");
-      const panel = new ContainerBuilder().setAccentColor(0x5865F2).addTextDisplayComponents(t=>t.setContent(`**Banner của ${user.tag}**`)).addMediaGalleryComponents(g=>g.addItems(x=>x.setURL(url)));
+      const panel = new ContainerBuilder().setAccentColor(0x5865F2).addTextDisplayComponents(t=>t.setContent(`**Banner của ${user.tag}** ${user.id===client.user.id && fakeBanners[user.id] ? '(Ảo)' : ''}`)).addMediaGalleryComponents(g=>g.addItems(x=>x.setURL(url)));
       return i.editReply({ components:[panel], flags: MessageFlags.IsComponentsV2 });
     }
   });
