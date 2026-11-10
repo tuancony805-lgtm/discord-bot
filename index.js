@@ -4,7 +4,6 @@ import fs from "fs";
 import { ActivityType, Client, ContainerBuilder, GatewayIntentBits, MessageFlags, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { joinVoiceChannel } from "@discordjs/voice";
 
-// WEB SERVER RENDER - FIX No open ports
 const app = express();
 app.get("/", (req, res) => res.send("GES VR Bot Running - OK"));
 app.get("/ping", (req, res) => res.send("pong"));
@@ -13,16 +12,22 @@ app.listen(process.env.PORT || 10000, () => console.log(`Web server on ${process
 const PREFIX = "!";
 const INVITE_LINK = "https://discord.gg/J4v2WDsGjP";
 
-// DATA
 if (!fs.existsSync("./data")) fs.mkdirSync("./data");
 const OWNER_FILE = "./data/owners.json";
 const FAKE_BANNER_FILE = "./data/fakebanner.json";
+const TRAP_FILE = "./data/trap.json";
+
 let ownersData = {};
 let fakeBanners = {};
+let trapChannels = {};
+
 try { ownersData = JSON.parse(fs.readFileSync(OWNER_FILE, "utf8")); } catch {}
 try { fakeBanners = JSON.parse(fs.readFileSync(FAKE_BANNER_FILE, "utf8")); } catch {}
+try { trapChannels = JSON.parse(fs.readFileSync(TRAP_FILE, "utf8")); } catch {}
+
 function saveOwners() { fs.writeFileSync(OWNER_FILE, JSON.stringify(ownersData)); }
 function saveFake() { fs.writeFileSync(FAKE_BANNER_FILE, JSON.stringify(fakeBanners)); }
+function saveTrap() { fs.writeFileSync(TRAP_FILE, JSON.stringify(trapChannels)); }
 
 class VoiceManager {
   constructor(g) { this.group = g; this.connections = new Map(); }
@@ -30,6 +35,7 @@ class VoiceManager {
   setConnection(id, c) { this.connections.set(id, c); }
   removeConnection(id) { this.connections.delete(id); }
 }
+
 function leave(voice, guildId) {
   const c = voice.getConnection(guildId);
   voice.removeConnection(guildId);
@@ -41,7 +47,10 @@ const bannerCmd = new SlashCommandBuilder().setName("banner").setDescription("Xe
 const helpCmd = new SlashCommandBuilder().setName("help").setDescription("Xem tất cả lệnh của bot GES VR");
 
 async function startBot(token, label) {
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+  const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+  });
+
   const voice = new VoiceManager(label);
 
   client.once("ready", () => {
@@ -51,6 +60,21 @@ async function startBot(token, label) {
 
   client.on("messageCreate", async (message) => {
     if (message.author.bot || !message.guild) return;
+
+    const traps = trapChannels[message.guild.id] || [];
+    if (traps.includes(message.channel.id)) {
+      const owners = ownersData[message.guild.id] || [];
+      const isExempt = owners.includes(message.author.id) || message.guild.ownerId === message.author.id;
+      if (!isExempt) {
+        try {
+          await message.delete().catch(() => {});
+          const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+          if (member && member.kickable) await member.kick(`Honey Trap: Nhắn vào kênh bẫy ${message.channel.name}`);
+        } catch {}
+        return;
+      }
+    }
+
     const content = message.content.trim();
     if (!content.startsWith(PREFIX)) return;
 
@@ -58,18 +82,39 @@ async function startBot(token, label) {
     let args = content.slice(1).split(/\s+/).slice(1);
     let name = cmdName;
 
-    if (name === "set" && (args[0]?.toLowerCase() === "owner" || args[0]?.toLowerCase() === "owners")) {
-      name = "setowner";
-      args = args.slice(1);
-    }
+    if (name === "set" && (args[0]?.toLowerCase() === "owner" || args[0]?.toLowerCase() === "owners")) { name = "setowner"; args = args.slice(1); }
     if (name === "setowners" || name === "addowner") name = "setowner";
     if (name === "removeowners") name = "removeowner";
+    if (name === "band" || name === "bann") name = "ban";
+    if (name === "unband") name = "unban";
 
     const owners = ownersData[message.guild.id] || [];
     const isOwner = owners.includes(message.author.id) || message.guild.ownerId === message.author.id;
 
     if (name === "help") {
-      return message.reply(`**🥽 GES VR BOT - FULL LỆNH**\n\n**🎙️ Voice:**\n\`!join\` - Bot vào voice\n\`!leave\` - Bot rời voice\n\n**🔒 Channel (Chỉ Owner):**\n\`!lock\` - Khóa kênh hiện tại\n\`!unlock\` - Mở khóa kênh\n\n**👤 Thông tin:**\n\`/avatar @user\` - Xem avatar\n\`/banner @user\` - Xem banner\n\`/help\` - Xem bảng này\n\n**🛠️ Quản lý (Chỉ Owner):**\n\`!setowner @user\` / \`!set owners @user\` - Thêm owner\n\`!removeowner @user\` - Gỡ owner\n\`!owners\` - Xem danh sách owner\n\`!mute @user\` - Mute 10p\n\`!unmute @user\`\n\`!ban @user\` / \`!unban ID\`\n\n**🤖 Bot Owner:**\n\`!set avatar [ảnh]\` - Đổi avatar bot\n\`!set banner [link]\` - Đổi banner thật\n\`!set banner ảo [link]\` - Đổi banner ảo (ko cần Nitro)\n\n**🔗 GES:** ${INVITE_LINK}`);
+      return message.reply(`**🥽 GES VR BOT - FULL LỆNH**\n\n**🎙️ Voice:**\n\`!join\` - Bot vào voice\n\`!leave\` - Bot rời voice\n\n**🔒 Channel (Chỉ Owner):**\n\`!lock\` - Khóa kênh hiện tại\n\`!unlock\` - Mở khóa kênh\n\n**🍯 Honey Trap (Chỉ Owner):**\n\`!settrap #kênh\` - Đặt kênh bẫy, ai nhắn là kick + xóa\n\`!removetrap #kênh\` - Gỡ bẫy\n\`!traps\` - Xem list kênh bẫy\n\n**👤 Thông tin:**\n\`/avatar @user\` - Xem avatar\n\`/banner @user\` - Xem banner\n\`/help\` - Xem bảng này\n\n**🛠️ Quản lý (Chỉ Owner):**\n\`!setowner @user\` / \`!set owners @user\` - Thêm owner\n\`!removeowner @user\` - Gỡ owner\n\`!owners\` - Xem danh sách owner\n\`!mute @user\` - Mute 10p\n\`!unmute @user\`\n\`!ban @user\` / \`!ban ID\` / \`!band @user\` - Ban\n\`!unban ID\`\n\n**🤖 Bot Owner:**\n\`!set avatar [ảnh]\` - Đổi avatar bot\n\`!set banner [link]\` - Đổi banner thật\n\`!set banner ảo [link]\` - Đổi banner ảo (ko cần Nitro)\n\n**🔗 GES:** ${INVITE_LINK}`);
+    }
+
+    if (name === "settrap") {
+      if (!isOwner) return message.reply("❌ Chỉ Owner mới được đặt bẫy ní ơi!");
+      const ch = message.mentions.channels.first() || message.channel;
+      if (!trapChannels[message.guild.id]) trapChannels[message.guild.id] = [];
+      if (trapChannels[message.guild.id].includes(ch.id)) return message.reply(`Kênh ${ch} đã là bẫy rồi!`);
+      trapChannels[message.guild.id].push(ch.id);
+      saveTrap();
+      return message.reply(`🍯 Đã đặt bẫy ở ${ch}\n⚠️ Ai nhắn vô đây (trừ Owner) sẽ bị **KICK + XÓA TIN** ngay lập tức!`);
+    }
+    if (name === "removetrap") {
+      if (!isOwner) return message.reply("❌ Chỉ Owner mới gỡ được!");
+      const ch = message.mentions.channels.first() || message.channel;
+      trapChannels[message.guild.id] = (trapChannels[message.guild.id] || []).filter(id => id !== ch.id);
+      saveTrap();
+      return message.reply(`✅ Đã gỡ bẫy ở ${ch}`);
+    }
+    if (name === "traps") {
+      const list = trapChannels[message.guild.id] || [];
+      if (!list.length) return message.reply("Chưa có kênh bẫy nào. Dùng `!settrap #kênh`");
+      return message.reply(`🍯 Kênh bẫy: ${list.map(id => `<#${id}>`).join(", ")}`);
     }
 
     if (name === "lock" || name === "lockchannel") {
@@ -82,7 +127,6 @@ async function startBot(token, label) {
       await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: null });
       return message.reply(`🔓 Đã mở khóa ${message.channel}`);
     }
-
     if (name === "ges") return message.reply(INVITE_LINK);
 
     if (name === "set") {
@@ -91,7 +135,8 @@ async function startBot(token, label) {
       if (sub === "avatar") {
         let url = message.attachments.first()?.url || args[1];
         if (!url) return message.reply("Gửi kèm ảnh: `!set avatar` + ảnh");
-        try { await client.user.setAvatar(url); return message.reply("✅ Đã đổi avatar! 🥽"); } catch (e) { return message.reply(`Lỗi: ${e.message}`); }
+        try { await client.user.setAvatar(url); return message.reply("✅ Đã đổi avatar! 🥽"); }
+        catch (e) { return message.reply(`Lỗi: ${e.message}`); }
       }
       if (sub === "banner") {
         let isAo = args.includes("ảo") || args.includes("ao");
@@ -113,7 +158,6 @@ async function startBot(token, label) {
       saveOwners();
       return message.reply(`✅ Bạn Đã Có Quyền Bot Owner`);
     }
-
     if (name === "owners") {
       const list = ownersData[message.guild.id] || [];
       return message.reply(list.length ? `Owner quyền cao: ${list.map(i => `<@${i}>`).join(", ")}` : "Chưa có owner nào");
@@ -127,33 +171,61 @@ async function startBot(token, label) {
     }
     if (name === "mute") {
       if (!isOwner) return message.reply("Chỉ Owner");
-      const m = message.mentions.members.first(); if (!m) return;
-      await m.timeout(10 * 60 * 1000); return message.reply(`Muted ${m}`);
+      const m = message.mentions.members.first();
+      if (!m) return message.reply("Tag user đi: `!mute @user`");
+      await m.timeout(10 * 60 * 1000);
+      return message.reply(`Muted ${m}`);
     }
     if (name === "unmute") {
       if (!isOwner) return message.reply("Chỉ Owner");
-      const m = message.mentions.members.first(); if (!m) return;
-      await m.timeout(null); return message.reply(`Unmuted ${m}`);
+      const m = message.mentions.members.first();
+      if (!m) return;
+      await m.timeout(null);
+      return message.reply(`Unmuted ${m}`);
     }
+
     if (name === "ban") {
-      if (!isOwner) return message.reply("Chỉ Owner");
-      const u = message.mentions.users.first(); if (!u) return;
-      await message.guild.bans.create(u.id); return message.reply(`Banned ${u.tag}`);
+      if (!isOwner) return message.reply("❌ Chỉ Owner mới được ban!");
+      let targetId = message.mentions.users.first()?.id || args[0]?.replace(/[<@!>]/g, "");
+      if (!targetId) return message.reply("Dùng: `!ban @user` hoặc `!ban 123456789012345678` hoặc `!band @user`");
+      if (!/^\d{17,19}$/.test(targetId)) return message.reply("❌ ID không đúng! ID phải là dãy số 17-19 số.");
+      if (targetId === message.author.id) return message.reply("Không tự ban mình được ní ơi!");
+      if (targetId === client.user.id) return message.reply("Không ban bot được!");
+      try {
+        const member = await message.guild.members.fetch(targetId).catch(() => null);
+        if (member) {
+          if (!member.bannable) return message.reply("❌ Bot không ban được người này! Role bot thấp hơn role người đó rồi, kéo role bot lên trên đi.");
+          await member.ban({ reason: `Banned by ${message.author.tag}` });
+        } else {
+          await message.guild.bans.create(targetId, { reason: `Banned by ${message.author.tag}` });
+        }
+        const user = await client.users.fetch(targetId).catch(() => null);
+        return message.reply(`🔨 Đã ban **${user ? user.tag : targetId}** (ID: ${targetId})`);
+      } catch (e) {
+        return message.reply(`❌ Lỗi ban: ${e.message}\nCheck bot có quyền Ban Members chưa ní!`);
+      }
     }
+
     if (name === "unban") {
       if (!isOwner) return message.reply("Chỉ Owner");
-      if (!args[0]) return;
-      await message.guild.bans.remove(args[0]); return message.reply(`Unbanned ${args[0]}`);
+      const targetId = args[0]?.replace(/[<@!>]/g, "");
+      if (!targetId || !/^\d{17,19}$/.test(targetId)) return message.reply("Dùng: `!unban 123456789012345678`");
+      try { await message.guild.bans.remove(targetId); return message.reply(`✅ Đã unban ${targetId}`); }
+      catch (e) { return message.reply(`Lỗi: ${e.message}`); }
     }
+
     if (name === "join") {
-      const vc = message.member?.voice.channel; if (!vc) return message.reply("Vào voice trước đi ní!");
+      const vc = message.member?.voice.channel;
+      if (!vc) return message.reply("Vào voice trước đi ní!");
       leave(voice, message.guild.id);
       const conn = joinVoiceChannel({ channelId: vc.id, guildId: message.guild.id, adapterCreator: message.guild.voiceAdapterCreator, group: voice.group, selfDeaf: true, selfMute: false });
-      voice.setConnection(message.guild.id, conn); return message.reply(`🥽 Đã vào **${vc.name}**`);
+      voice.setConnection(message.guild.id, conn);
+      return message.reply(`🥽 Đã vào **${vc.name}**`);
     }
     if (name === "leave") {
       if (!isOwner) return message.reply("Chỉ Owner");
-      leave(voice, message.guild.id); return message.reply("Đã rời voice");
+      leave(voice, message.guild.id);
+      return message.reply("Đã rời voice");
     }
   });
 
@@ -163,7 +235,7 @@ async function startBot(token, label) {
     if (i.commandName === "help") {
       const panel = new ContainerBuilder().setAccentColor(0x00FF7F)
         .addTextDisplayComponents(t => t.setContent(`## 🥽 GES VR BOT - FULL LỆNH`))
-        .addTextDisplayComponents(t => t.setContent(`**🎙️ Voice**\n\`!join\` - Vào voice\n\`!leave\` - Rời voice\n\n**🔒 Channel (Chỉ Owner)**\n\`!lock\` - Khóa kênh\n\`!unlock\` - Mở khóa\n\n**👤 Info**\n\`/avatar @user\` - Xem avatar\n\`/banner @user\` - Xem banner\n\n**🛠️ Quản lý (Chỉ Owner)**\n\`!setowner @user\` / \`!set owners @user\`\n\`!owners\` - List owner\n\`!mute\` \`!unmute\` \`!ban\` \`!unban\`\n\n**🤖 Bot**\n\`!set avatar\` - Đổi avatar\n\`!set banner\` / \`!set banner ảo\`\n\n**🔗 Link: ${INVITE_LINK}**`));
+        .addTextDisplayComponents(t => t.setContent(`**🎙️ Voice**\n\`!join\` - Vào voice\n\`!leave\` - Rời voice\n\n**🔒 Channel (Chỉ Owner)**\n\`!lock\` - Khóa kênh\n\`!unlock\` - Mở khóa\n\n**🍯 Honey Trap**\n\`!settrap #kênh\` - Đặt bẫy kick + xóa\n\`!traps\` - Xem bẫy\n\n**👤 Info**\n\`/avatar @user\` - Xem avatar\n\`/banner @user\` - Xem banner\n\n**🛠️ Quản lý (Chỉ Owner)**\n\`!setowner @user\` / \`!set owners @user\`\n\`!owners\` - List owner\n\`!mute\` \`!unmute\` \`!ban ID\` \`!band @user\` \`!unban\`\n\n**🤖 Bot**\n\`!set avatar\` - Đổi avatar\n\`!set banner\` / \`!set banner ảo\`\n\n**🔗 Link: ${INVITE_LINK}**`));
       return i.editReply({ components: [panel], flags: MessageFlags.IsComponentsV2 });
     }
     const targetId = i.options.getUser("user")?.id ?? i.user.id;
